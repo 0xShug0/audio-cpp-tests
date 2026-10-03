@@ -43,6 +43,8 @@ foreach ($case in @('ascii', 'unicode')) {
                 if ($models.data[0].loaded) { $ready = $true; break }
             } catch [System.Net.Http.HttpRequestException] {
                 # Startup polling only; failure after the deadline is an error.
+            } catch [System.Threading.Tasks.TaskCanceledException] {
+                # A failed child may exit while a connection attempt is waiting.
             }
             Start-Sleep -Milliseconds 500
         }
@@ -62,6 +64,8 @@ foreach ($case in @('ascii', 'unicode')) {
             $body | Set-Content "$dir/request.json" -Encoding utf8NoBOM
             $response = Invoke-WebRequest http://127.0.0.1:18069/v1/tasks/run -Method Post -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body)) -TimeoutSec 120
             $response.Content | Set-Content "$dir/response.json" -Encoding utf8NoBOM
+            $parsed = $response.Content | ConvertFrom-Json
+            if ($parsed.segments.Count -eq 0) { throw 'Expected speech segments for the sample WAV' }
             Write-Host "$Stage $case inference: $($response.Content)"
         }
     } finally {
