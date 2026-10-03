@@ -1,0 +1,69 @@
+name: Windows Unicode paths
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: 0xShug0/audio.cpp
+          ref: 93c3240a20f67fbd709536b241308348af3512c2
+          path: audio.cpp
+          submodules: recursive
+      - name: Configure MSVC and Debug CPU build
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory artifacts -Force | Out-Null
+          $acp = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Nls\CodePage').ACP
+          "System ACP=$acp" | Tee-Object artifacts/system-codepage.txt
+          if ($acp -eq '65001') { throw 'UTF-8 system ACP masks the baseline bug' }
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $vcvars = Join-Path $vs 'VC\Auxiliary\Build\vcvars64.bat'
+          cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') {
+              [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'Process')
+              "$($Matches[1])=$($Matches[2])" >> $env:GITHUB_ENV
+            }
+          }
+          cmake -S audio.cpp -B audio.cpp/build/debug -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl '-DCMAKE_C_FLAGS=/utf-8' '-DCMAKE_CXX_FLAGS=/utf-8 /EHsc' '-DCMAKE_C_FLAGS_DEBUG=/O2 /Zi' '-DCMAKE_CXX_FLAGS_DEBUG=/O2 /Zi' -DENGINE_ENABLE_CUDA=OFF -DENGINE_ENABLE_VULKAN=OFF -DENGINE_ENABLE_METAL=OFF -DENGINE_BUILD_TESTS=OFF -DAUDIOCPP_MODEL_SET=custom -DAUDIOCPP_MODELS=pulsevad -DAUDIOCPP_BUILD_NATIVE_MODEL_MANAGER=OFF -DOpenMP_C_FLAGS=/openmp:experimental -DOpenMP_CXX_FLAGS=/openmp:experimental 2>&1 | Tee-Object artifacts/configure.log
+          if ($LASTEXITCODE) { throw 'CMake configure failed' }
+      - name: Build baseline
+        run: |
+          cmake --build audio.cpp/build/debug --target audiocpp_server -j 4 2>&1 | Tee-Object artifacts/build-before.log
+          if ($LASTEXITCODE) { throw 'Baseline build failed' }
+      - name: Download pinned model
+        run: |
+          & "$env:CONDA/Scripts/conda.exe" create -n qwen3-tts --no-default-packages --offline -y
+          if ($LASTEXITCODE) { throw 'Conda environment creation failed' }
+          curl.exe -fL --retry 3 https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/351dbab8d8534675ee29440bb402e348b09e55e2/PulseVAD-GGUF/pulsevad-2.1k-f32.gguf -o artifacts/model.gguf
+          if ($LASTEXITCODE) { throw 'Model download failed' }
+          Get-FileHash artifacts/model.gguf | Format-List | Out-File artifacts/model-sha256.txt
+      - name: Test baseline
+        run: ./test-paths.ps1 -Stage before
+      - name: Apply manifest patch and rebuild incrementally
+        run: |
+          git -C audio.cpp apply ../windows-utf8.patch
+          if ($LASTEXITCODE) { throw 'Patch failed' }
+          cmake --build audio.cpp/build/debug --target audiocpp_server -j 4 2>&1 | Tee-Object artifacts/build-after.log
+          if ($LASTEXITCODE) { throw 'Patched build failed' }
+      - name: Test patched build and compare results
+        run: ./test-paths.ps1 -Stage after
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: windows-path-evidence
+          path: |
+            artifacts/**/*.log
+            artifacts/**/*.json
+            artifacts/**/*.txt
+          retention-days: 14
