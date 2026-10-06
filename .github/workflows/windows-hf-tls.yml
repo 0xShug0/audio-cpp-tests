@@ -1,4 +1,4 @@
-name: Windows HF mirror TLS
+name: Windows HF mirror prebuilt
 on:
   push:
     branches: [test/hf-mirror-windows-tls]
@@ -6,47 +6,56 @@ on:
 permissions:
   contents: read
 jobs:
-  tls:
+  prebuilt:
     runs-on: windows-2022
-    timeout-minutes: 25
+    timeout-minutes: 15
     defaults:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          repository: 0xShug0/audio.cpp
-          ref: 795c45fbde0a7d29c93b22199728ff5caaec02e5
-          path: audio.cpp
-      - name: Build exact release TLS implementation
+      - name: Download release
         run: |
           New-Item -ItemType Directory artifacts -Force | Out-Null
-          cmake -S tls-probe -B build -A x64 2>&1 | Tee-Object artifacts/configure.log
-          if ($LASTEXITCODE) { throw 'Configure failed' }
-          cmake --build build --config Release --target hf_tls_probe -j 4 2>&1 | Tee-Object artifacts/build.log
-          if ($LASTEXITCODE) { throw 'Build failed' }
-      - name: Test mirror and direct HF with native TLS and Windows curl
+          curl.exe -fL --retry 2 https://github.com/0xShug0/audio.cpp/releases/download/v0.9.0/audio-v0.9.0-bin-windows-x64-cpu.zip -o release.zip
+          if ($LASTEXITCODE) { throw 'Download failed' }
+          Expand-Archive release.zip release
+          $server = (Get-ChildItem release -Recurse -Filter audiocpp_server.exe | Select-Object -First 1).FullName
+          & $server --version | Tee-Object artifacts/version.txt
+          "SERVER=$server" >> $env:GITHUB_ENV
+      - name: Reproduce via server UI management endpoint
         run: |
-          curl.exe --version | Tee-Object artifacts/curl-version.txt
-          $paths = @(
-            'api/models/audio-cpp/audio.cpp-gguf',
-            'audio-cpp/audio.cpp-gguf/resolve/main/Kokoro-82M-GGUF/kokoro-82m-q8_0.gguf',
-            'audio-cpp/audio.cpp-gguf/resolve/main/Qwen3-TTS-12Hz-0.6B-Base-GGUF/qwen3-tts-12hz-0.6b-base-q8_0.gguf'
-          )
-          foreach ($hostName in @('hf-mirror.com', 'huggingface.co')) {
-            for ($i = 0; $i -lt $paths.Count; $i++) {
-              $url = "https://$hostName/$($paths[$i])"
-              & ./build/Release/hf_tls_probe.exe $url 2>&1 | Tee-Object "artifacts/native-$hostName-$i.log"
-              "native $hostName $i exit=$LASTEXITCODE" | Tee-Object -Append artifacts/results.txt
-              curl.exe -vIL --max-time 90 $url 2>&1 | Tee-Object "artifacts/curl-$hostName-$i.log"
-              "curl $hostName $i exit=$LASTEXITCODE" | Tee-Object -Append artifacts/results.txt
+          $env:AUDIOCPP_HF_BASE_URL = 'https://hf-mirror.com'
+          $server = Start-Process $env:SERVER -ArgumentList '--ui --ui-management --backend cpu --port 18096 --log' -PassThru -RedirectStandardOutput "$pwd/artifacts/server.log" -RedirectStandardError "$pwd/artifacts/server-error.log"
+          try {
+            $ready = $false
+            for ($i=0; $i -lt 60; $i++) {
+              if ($server.HasExited) { throw 'Server exited' }
+              try { Invoke-RestMethod http://127.0.0.1:18096/health | Out-Null; $ready=$true; break } catch { Start-Sleep 1 }
             }
+            if (!$ready) { throw 'Server not ready' }
+            foreach ($id in @('kokoro_82m_q8_0', 'qwen3_tts_0_6b_base_q8_0')) {
+              $body = @{id=$id} | ConvertTo-Json -Compress
+              Invoke-RestMethod http://127.0.0.1:18096/v1/ui/models/install -Method Post -ContentType application/json -Body $body | ConvertTo-Json -Depth 20 | Out-File "artifacts/start-$id.json"
+              for ($i=0; $i -lt 90; $i++) {
+                Start-Sleep 2
+                $status = Invoke-RestMethod "http://127.0.0.1:18096/v1/ui/models/install-status?id=$id"
+                $status | ConvertTo-Json -Depth 20 | Tee-Object "artifacts/status-$id.json"
+                if ($status.state -in @('failed','complete') -or $status.downloaded_bytes -gt 0) { break }
+              }
+            }
+          } finally {
+            if (!$server.HasExited) { Stop-Process -Id $server.Id -Force }
           }
+      - name: Compare Windows curl
+        if: always()
+        run: |
+          curl.exe --version | Out-File artifacts/curl-version.txt
+          curl.exe -vIL --max-time 90 https://hf-mirror.com/audio-cpp/audio.cpp-gguf/resolve/main/Kokoro-82M-GGUF/kokoro-82m-q8_0.gguf 2>&1 | Tee-Object artifacts/curl-kokoro.log
+          "exit=$LASTEXITCODE" | Out-File artifacts/curl-exit.txt
           exit 0
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: windows-hf-tls-evidence
+          name: windows-hf-prebuilt-evidence
           path: artifacts/
           retention-days: 14
