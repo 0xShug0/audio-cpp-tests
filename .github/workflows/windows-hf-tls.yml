@@ -1,0 +1,52 @@
+name: Windows HF mirror TLS
+on:
+  push:
+    branches: [test/hf-mirror-windows-tls]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tls:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: 0xShug0/audio.cpp
+          ref: 795c45fbde0a7d29c93b22199728ff5caaec02e5
+          path: audio.cpp
+      - name: Build exact release TLS implementation
+        run: |
+          New-Item -ItemType Directory artifacts -Force | Out-Null
+          cmake -S tls-probe -B build -A x64 2>&1 | Tee-Object artifacts/configure.log
+          if ($LASTEXITCODE) { throw 'Configure failed' }
+          cmake --build build --config Release --target hf_tls_probe -j 4 2>&1 | Tee-Object artifacts/build.log
+          if ($LASTEXITCODE) { throw 'Build failed' }
+      - name: Test mirror and direct HF with native TLS and Windows curl
+        run: |
+          curl.exe --version | Tee-Object artifacts/curl-version.txt
+          $paths = @(
+            'api/models/audio-cpp/audio.cpp-gguf',
+            'audio-cpp/audio.cpp-gguf/resolve/main/Kokoro-82M-GGUF/kokoro-82m-q8_0.gguf',
+            'audio-cpp/audio.cpp-gguf/resolve/main/Qwen3-TTS-12Hz-0.6B-Base-GGUF/qwen3-tts-12hz-0.6b-base-q8_0.gguf'
+          )
+          foreach ($hostName in @('hf-mirror.com', 'huggingface.co')) {
+            for ($i = 0; $i -lt $paths.Count; $i++) {
+              $url = "https://$hostName/$($paths[$i])"
+              & ./build/Release/hf_tls_probe.exe $url 2>&1 | Tee-Object "artifacts/native-$hostName-$i.log"
+              "native $hostName $i exit=$LASTEXITCODE" | Tee-Object -Append artifacts/results.txt
+              curl.exe -vIL --max-time 90 $url 2>&1 | Tee-Object "artifacts/curl-$hostName-$i.log"
+              "curl $hostName $i exit=$LASTEXITCODE" | Tee-Object -Append artifacts/results.txt
+            }
+          }
+          exit 0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: windows-hf-tls-evidence
+          path: artifacts/
+          retention-days: 14

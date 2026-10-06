@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.24)
+project(hf_tls_probe LANGUAGES C CXX)
+set(CMAKE_CXX_STANDARD 17)
+add_subdirectory(../audio.cpp/external/cpp-httplib httplib)
+add_executable(hf_tls_probe main.cpp)
+target_link_libraries(hf_tls_probe PRIVATE audiocpp_cpp_httplib)
