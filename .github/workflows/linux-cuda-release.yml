@@ -6,12 +6,12 @@ on:
       source_ref:
         description: audio.cpp revision to build
         required: true
-        default: 6562a6c5d8f09b8b9667be2c299ecb1d81fb2347
+        default: main
         type: string
       version:
         description: Artifact version, including the v prefix
         required: true
-        default: v0.9.1-linux-x64-test
+        default: v0.9.1
         type: string
 
 permissions:
@@ -54,22 +54,22 @@ jobs:
           DEBIAN_FRONTEND=noninteractive apt-get install -y gcc-13 g++-13 cmake ninja-build libssl-dev
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          repository: 0xShug0/audio.cpp
+          repository: ${{ github.repository == '0xShug0/audio-cpp-tests' && '0xShug0/audio.cpp' || github.repository }}
           ref: ${{ inputs.source_ref }}
           path: audio.cpp
           submodules: recursive
-      - name: Configure full Debug build
+      - name: Configure full Release build
         run: |
           mkdir -p evidence
           git -C audio.cpp rev-parse HEAD > evidence/source-revision.txt
-          printf 'CUDA=%s\narchitectures=%s\nbuild_type=Debug\n' \
+          printf 'CUDA=%s\narchitectures=%s\nbuild_type=Release\n' \
             "$CUDA_LABEL" '${{ matrix.archs }}' > evidence/configuration.txt
           options=()
           if [[ "$CUDA_LABEL" == 12.8 ]]; then
             options+=(-DGGML_CUDA_NCCL=OFF)
           fi
-          cmake -S audio.cpp -B audio.cpp/build/debug -G Ninja \
-            -DCMAKE_BUILD_TYPE=Debug \
+          cmake -S audio.cpp -B audio.cpp/build/release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
             '-DCMAKE_CUDA_ARCHITECTURES=${{ matrix.archs }}' \
             -DENGINE_ENABLE_CUDA=ON -DENGINE_ENABLE_VULKAN=OFF \
             -DENGINE_ENABLE_METAL=OFF -DENGINE_ENABLE_NATIVE_CPU=OFF \
@@ -82,7 +82,7 @@ jobs:
             2>&1 | tee evidence/configure.log
       - name: Build binaries and C API library in the same tree
         run: |
-          cmake --build audio.cpp/build/debug --parallel "$(nproc)" \
+          cmake --build audio.cpp/build/release --parallel "$(nproc)" \
             --target audiocpp_cli audiocpp_server audiocpp_gguf audiocpp \
             2>&1 | tee evidence/build.log
       - name: Stage release-style archives
@@ -90,18 +90,26 @@ jobs:
           mkdir -p packages stage/bin stage/lib/libs stage/lib/include stage/cudart
           cp audio.cpp/LICENSE stage/bin/
           cp -r audio.cpp/tools audio.cpp/model_specs stage/bin/
-          cp audio.cpp/build/debug/bin/audiocpp_cli \
-            audio.cpp/build/debug/bin/audiocpp_server \
-            audio.cpp/build/debug/bin/audiocpp_gguf stage/bin/
+          cp audio.cpp/build/release/bin/audiocpp_cli \
+            audio.cpp/build/release/bin/audiocpp_server \
+            audio.cpp/build/release/bin/audiocpp_gguf stage/bin/
           cp audio.cpp/LICENSE stage/lib/
           cp audio.cpp/include/audiocpp.h stage/lib/include/
-          for path in audio.cpp/build/debug/bin/*.so*; do
+          for path in audio.cpp/build/release/bin/*.so*; do
             cp -P "$path" stage/lib/libs/
             case "$(basename "$path")" in
               libaudiocpp.so*) ;;
               *) cp -P "$path" stage/bin/ ;;
             esac
           done
+          # Match the build compiler even on hosts with an older system runtime.
+          for name in libstdc++.so.6 libgcc_s.so.1; do
+            path="$("$CXX" -print-file-name="$name")"
+            cp -L "$path" "stage/bin/$name"
+            cp -L "$path" "stage/lib/libs/$name"
+          done
+          cp /usr/share/doc/gcc-13-base/copyright stage/bin/GCC-RUNTIME-LICENSE
+          cp /usr/share/doc/gcc-13-base/copyright stage/lib/GCC-RUNTIME-LICENSE
           test -f stage/lib/libs/libggml-cuda.so
           test -f stage/lib/libs/libaudiocpp.so
           # Follow the linked dependency closure, including audio.cpp's cuFFT.
@@ -160,7 +168,7 @@ jobs:
           /opt/conda/bin/conda create -n qwen3-tts --no-default-packages --offline -y
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          repository: 0xShug0/audio.cpp
+          repository: ${{ github.repository == '0xShug0/audio-cpp-tests' && '0xShug0/audio.cpp' || github.repository }}
           ref: ${{ inputs.source_ref }}
           path: audio.cpp
           submodules: recursive
