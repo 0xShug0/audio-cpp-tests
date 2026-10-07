@@ -70,6 +70,9 @@ jobs:
           fi
           cmake -S audio.cpp -B audio.cpp/build/release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_EXE_LINKER_FLAGS='-static-libstdc++ -static-libgcc' \
+            -DCMAKE_SHARED_LINKER_FLAGS='-static-libstdc++ -static-libgcc' \
+            -DCMAKE_MODULE_LINKER_FLAGS='-static-libstdc++ -static-libgcc' \
             '-DCMAKE_CUDA_ARCHITECTURES=${{ matrix.archs }}' \
             -DENGINE_ENABLE_CUDA=ON -DENGINE_ENABLE_VULKAN=OFF \
             -DENGINE_ENABLE_METAL=OFF -DENGINE_ENABLE_NATIVE_CPU=OFF \
@@ -102,16 +105,17 @@ jobs:
               *) cp -P "$path" stage/bin/ ;;
             esac
           done
-          # Match the build compiler even on hosts with an older system runtime.
-          for name in libstdc++.so.6 libgcc_s.so.1; do
-            path="$("$CXX" -print-file-name="$name")"
-            cp -L "$path" "stage/bin/$name"
-            cp -L "$path" "stage/lib/libs/$name"
-          done
           cp /usr/share/doc/gcc-13-base/copyright stage/bin/GCC-RUNTIME-LICENSE
           cp /usr/share/doc/gcc-13-base/copyright stage/lib/GCC-RUNTIME-LICENSE
           test -f stage/lib/libs/libggml-cuda.so
           test -f stage/lib/libs/libaudiocpp.so
+          # Apply the existing Colab release's runtime check to every shipped ELF.
+          for path in stage/bin/audiocpp_* stage/lib/libs/*.so*; do
+            if readelf -d "$path" | grep -E 'Shared library: \[(libstdc\+\+|libgcc_s)\.so'; then
+              echo "::error::$path directly depends on a shared compiler runtime."
+              exit 1
+            fi
+          done
           # Follow the linked dependency closure, including audio.cpp's cuFFT.
           ldd stage/lib/libs/*.so* > evidence/build-dependencies.txt
           awk '$3 ~ /^\/usr\/local\/cuda/ {print $1, $3}' evidence/build-dependencies.txt |

@@ -23,8 +23,8 @@ discovery. Builds use Release configuration in `build/release`.
 NCCL is disabled for CUDA 12.8 only, matching the library release fix.
 The native model manager uses system OpenSSL, with `libssl-dev` at build time
 and `libssl3` at runtime, following audio.cpp's working Colab CUDA workflow.
-The binary and library archives include the build compiler's `libstdc++.so.6`
-and `libgcc_s.so.1`, so clean Ubuntu 22.04 hosts do not need GCC 13 installed.
+The binaries and shared libraries link the compiler runtime statically, following
+audio.cpp's CUDA Colab release workflow, so Ubuntu 22.04 does not need GCC 13 installed.
 The workflow can be copied unchanged into audio.cpp: in this test repository it
 checks out upstream audio.cpp, and elsewhere it checks out the hosting repository.
 
