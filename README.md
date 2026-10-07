@@ -21,6 +21,8 @@ The CUDA 12.8 and 13.3 builds use audio.cpp's existing release architecture list
 full model set, portable CPU backend variants, and library-relative backend
 discovery. Builds are Debug, in `build/debug`, not production Release binaries.
 NCCL is disabled for CUDA 12.8 only, matching the library release fix.
+The native model manager uses system OpenSSL, with `libssl-dev` at build time
+and `libssl3` at runtime, following audio.cpp's working Colab CUDA workflow.
 
 Each configuration produces three archives using audio.cpp's naming convention:
 

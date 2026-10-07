@@ -51,7 +51,7 @@ jobs:
           DEBIAN_FRONTEND=noninteractive apt-get install -y git software-properties-common
           add-apt-repository -y ppa:ubuntu-toolchain-r/test
           apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y gcc-13 g++-13 cmake ninja-build
+          DEBIAN_FRONTEND=noninteractive apt-get install -y gcc-13 g++-13 cmake ninja-build libssl-dev
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: 0xShug0/audio.cpp
@@ -77,6 +77,7 @@ jobs:
             -DENGINE_ENABLE_LLAMAFILE=ON -DENGINE_ENABLE_CUDA_GRAPHS=ON \
             -DAUDIOCPP_MODEL_SET=full -DAUDIOCPP_DEPLOYMENT_BUILD=ON \
             -DAUDIOCPP_BUILD_NATIVE_MODEL_MANAGER=ON -DAUDIOCPP_BUILD_C_API=ON \
+            -DAUDIOCPP_USE_SYSTEM_OPENSSL=ON \
             -DAUDIOCPP_VERSION="${VERSION#v}" "${options[@]}" \
             2>&1 | tee evidence/configure.log
       - name: Build binaries and C API library in the same tree
@@ -152,7 +153,7 @@ jobs:
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            ca-certificates curl bzip2 gcc git libgomp1 libstdc++6
+            ca-certificates curl bzip2 gcc git libgomp1 libstdc++6 libssl3
           curl -fL https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh \
             -o miniconda.sh
           bash miniconda.sh -b -p /opt/conda
