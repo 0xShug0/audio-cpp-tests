@@ -1,0 +1,232 @@
+name: Linux x64 CUDA release packaging
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: audio.cpp revision to build
+        required: true
+        default: 6562a6c5d8f09b8b9667be2c299ecb1d81fb2347
+        type: string
+      version:
+        description: Artifact version, including the v prefix
+        required: true
+        default: v0.9.1-linux-x64-test
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  VERSION: ${{ inputs.version }}
+
+jobs:
+  build:
+    name: Build Ubuntu x64 CUDA ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    container: nvidia/cuda:${{ matrix.cuda }}-devel-ubuntu22.04
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cuda: 12.8.1
+            label: '12.8'
+            archs: '75;80;86;89;90'
+          - cuda: 13.3.0
+            label: '13.3'
+            archs: '75;80;86;89;90;120'
+    env:
+      CC: gcc-13
+      CXX: g++-13
+      CUDAHOSTCXX: g++-13
+      CUDA_LABEL: ${{ matrix.label }}
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y git software-properties-common
+          add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y gcc-13 g++-13 cmake ninja-build
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: 0xShug0/audio.cpp
+          ref: ${{ inputs.source_ref }}
+          path: audio.cpp
+          submodules: recursive
+      - name: Configure full Debug build
+        run: |
+          mkdir -p evidence
+          git -C audio.cpp rev-parse HEAD > evidence/source-revision.txt
+          printf 'CUDA=%s\narchitectures=%s\nbuild_type=Debug\n' \
+            "$CUDA_LABEL" '${{ matrix.archs }}' > evidence/configuration.txt
+          options=()
+          if [[ "$CUDA_LABEL" == 12.8 ]]; then
+            options+=(-DGGML_CUDA_NCCL=OFF)
+          fi
+          cmake -S audio.cpp -B audio.cpp/build/debug -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            '-DCMAKE_CUDA_ARCHITECTURES=${{ matrix.archs }}' \
+            -DENGINE_ENABLE_CUDA=ON -DENGINE_ENABLE_VULKAN=OFF \
+            -DENGINE_ENABLE_METAL=OFF -DENGINE_ENABLE_NATIVE_CPU=OFF \
+            -DENGINE_ENABLE_CPU_ALL_VARIANTS=ON -DENGINE_BUILD_TESTS=OFF \
+            -DENGINE_ENABLE_LLAMAFILE=ON -DENGINE_ENABLE_CUDA_GRAPHS=ON \
+            -DAUDIOCPP_MODEL_SET=full -DAUDIOCPP_DEPLOYMENT_BUILD=ON \
+            -DAUDIOCPP_BUILD_NATIVE_MODEL_MANAGER=ON -DAUDIOCPP_BUILD_C_API=ON \
+            -DAUDIOCPP_VERSION="${VERSION#v}" "${options[@]}" \
+            2>&1 | tee evidence/configure.log
+      - name: Build binaries and C API library in the same tree
+        run: |
+          cmake --build audio.cpp/build/debug --parallel "$(nproc)" \
+            --target audiocpp_cli audiocpp_server audiocpp_gguf audiocpp \
+            2>&1 | tee evidence/build.log
+      - name: Stage release-style archives
+        run: |
+          mkdir -p packages stage/bin stage/lib/libs stage/lib/include stage/cudart
+          cp audio.cpp/LICENSE stage/bin/
+          cp -r audio.cpp/tools audio.cpp/model_specs stage/bin/
+          cp audio.cpp/build/debug/bin/audiocpp_cli \
+            audio.cpp/build/debug/bin/audiocpp_server \
+            audio.cpp/build/debug/bin/audiocpp_gguf stage/bin/
+          cp audio.cpp/LICENSE stage/lib/
+          cp audio.cpp/include/audiocpp.h stage/lib/include/
+          for path in audio.cpp/build/debug/bin/*.so*; do
+            cp -P "$path" stage/lib/libs/
+            case "$(basename "$path")" in
+              libaudiocpp.so*) ;;
+              *) cp -P "$path" stage/bin/ ;;
+            esac
+          done
+          test -f stage/lib/libs/libggml-cuda.so
+          test -f stage/lib/libs/libaudiocpp.so
+          # Follow the linked dependency closure, including audio.cpp's cuFFT.
+          ldd stage/lib/libs/*.so* > evidence/build-dependencies.txt
+          awk '$3 ~ /^\/usr\/local\/cuda/ {print $1, $3}' evidence/build-dependencies.txt |
+            sort -u |
+            while read -r name path; do cp -L "$path" "stage/cudart/$name"; done
+          test -n "$(find stage/cudart -name 'libcudart.so.*' -print)"
+          test -n "$(find stage/cudart -name 'libcublas.so.*' -print)"
+          test -n "$(find stage/cudart -name 'libcublasLt.so.*' -print)"
+          test -n "$(find stage/cudart -name 'libcufft.so.*' -print)"
+          for kind in bin lib cudart; do
+            name="audio-${VERSION}-${kind}-ubuntu-x64-cuda${CUDA_LABEL}.tar.gz"
+            tar -czf "packages/$name" -C "stage/$kind" .
+            tar -tzf "packages/$name" > "evidence/$kind-contents.txt"
+          done
+          (cd packages && sha256sum *.tar.gz > SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: audio-${{ inputs.version }}-packages-ubuntu-x64-cuda${{ matrix.label }}
+          path: packages/*
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: audio-${{ inputs.version }}-build-evidence-ubuntu-x64-cuda${{ matrix.label }}
+          path: evidence/*
+          if-no-files-found: error
+          retention-days: 14
+
+  verify:
+    name: Verify Ubuntu x64 CUDA ${{ matrix.label }} packages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container: ubuntu:22.04
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        label: ['12.8', '13.3']
+    env:
+      CUDA_LABEL: ${{ matrix.label }}
+    steps:
+      - name: Install runtime test dependencies without a CUDA toolkit
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            ca-certificates curl bzip2 gcc git libgomp1 libstdc++6
+          curl -fL https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh \
+            -o miniconda.sh
+          bash miniconda.sh -b -p /opt/conda
+          /opt/conda/bin/conda create -n qwen3-tts --no-default-packages --offline -y
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: 0xShug0/audio.cpp
+          ref: ${{ inputs.source_ref }}
+          path: audio.cpp
+          submodules: recursive
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: audio-${{ inputs.version }}-packages-ubuntu-x64-cuda${{ matrix.label }}
+          path: packages
+      - name: Extract archives into independent application layouts
+        run: |
+          mkdir -p evidence runtime/bin-app runtime/lib-app/app runtime/run
+          (cd packages && sha256sum -c SHA256SUMS) | tee evidence/checksums.log
+          tar -xzf "packages/audio-${VERSION}-bin-ubuntu-x64-cuda${CUDA_LABEL}.tar.gz" \
+            -C runtime/bin-app
+          tar -xzf "packages/audio-${VERSION}-lib-ubuntu-x64-cuda${CUDA_LABEL}.tar.gz" \
+            -C runtime/lib-app
+          tar -xzf "packages/audio-${VERSION}-cudart-ubuntu-x64-cuda${CUDA_LABEL}.tar.gz" \
+            -C runtime/bin-app
+          tar -xzf "packages/audio-${VERSION}-cudart-ubuntu-x64-cuda${CUDA_LABEL}.tar.gz" \
+            -C runtime/lib-app/libs
+      - name: Check dependency closure without toolkit or NCCL installed
+        run: |
+          for path in runtime/bin-app/audiocpp_* runtime/bin-app/*.so* \
+            runtime/lib-app/libs/*.so*; do
+            printf '\n%s\n' "$path"
+            env -u LD_LIBRARY_PATH ldd "$path"
+          done > evidence/runtime-dependencies.txt
+          # Hosted runners have no NVIDIA driver. No other missing dependency is allowed.
+          awk '/not found/ && $1 != "libcuda.so.1" {print; bad=1} END {exit bad}' \
+            evidence/runtime-dependencies.txt
+          if grep -q libnccl evidence/runtime-dependencies.txt; then
+            echo 'Unexpected unbundled NCCL dependency' >&2
+            exit 1
+          fi
+      - name: Exercise relocated binaries and library using existing upstream tests
+        run: |
+          root="$PWD"
+          gcc -g -O0 audio.cpp/tests/capi/path_test.c -I runtime/lib-app/include \
+            -L runtime/lib-app/libs -laudiocpp \
+            '-Wl,-rpath,$ORIGIN/../libs' -Wl,--allow-shlib-undefined \
+            -o runtime/lib-app/app/path-test
+          cd runtime/run
+          /opt/conda/bin/conda run --no-capture-output -n qwen3-tts \
+            env -u LD_LIBRARY_PATH "$root/runtime/lib-app/app/path-test" \
+            "$root/audio.cpp/assets/framework/models/silero_vad" \
+            "$root/audio.cpp/assets/resources/sample_16k.wav" cpu \
+            2>&1 | tee "$root/evidence/c-api-path-test.log"
+          for binary in audiocpp_cli audiocpp_server audiocpp_gguf; do
+            /opt/conda/bin/conda run --no-capture-output -n qwen3-tts \
+              env -u LD_LIBRARY_PATH "$root/runtime/bin-app/$binary" --help \
+              > "$root/evidence/$binary-help.log" 2>&1
+          done
+          mkdir -p "$root/evidence/vad-input"
+          cp "$root/audio.cpp/assets/resources/sample_16k.wav" "$root/evidence/vad-input/"
+          /opt/conda/bin/conda run --no-capture-output -n qwen3-tts \
+            env -u LD_LIBRARY_PATH "$root/runtime/bin-app/audiocpp_cli" \
+            --task vad --family silero_vad \
+            --model "$root/audio.cpp/assets/framework/models/silero_vad" \
+            --backend cpu --threads 2 \
+            --batch-audio-dir "$root/evidence/vad-input" \
+            --out-dir "$root/evidence/vad-output" \
+            --metrics --log --log-file "$root/evidence/cli-vad.log" \
+            > "$root/evidence/cli-vad.stdout.log" 2>&1
+          grep -q session.wall_ms "$root/evidence/cli-vad.stdout.log"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: audio-${{ inputs.version }}-runtime-evidence-ubuntu-x64-cuda${{ matrix.label }}
+          path: evidence/**
+          if-no-files-found: error
+          retention-days: 14

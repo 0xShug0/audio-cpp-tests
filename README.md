@@ -11,6 +11,34 @@ identified separately.
 
 ## Available Tests
 
+### Linux x64 CUDA Release Packaging
+
+Select **Linux x64 CUDA release packaging** in Actions and provide an audio.cpp
+source revision and artifact version. This workflow is manual-only. It uploads
+test artifacts but never creates tags or publishes a GitHub release.
+
+The CUDA 12.8 and 13.3 builds use audio.cpp's existing release architecture lists,
+full model set, portable CPU backend variants, and library-relative backend
+discovery. Builds are Debug, in `build/debug`, not production Release binaries.
+NCCL is disabled for CUDA 12.8 only, matching the library release fix.
+
+Each configuration produces three archives using audio.cpp's naming convention:
+
+- `audio-<version>-bin-ubuntu-x64-cuda<toolkit>.tar.gz`: CLI, server, GGUF tool,
+  ggml backend libraries, tools, and model specs.
+- `audio-<version>-lib-ubuntu-x64-cuda<toolkit>.tar.gz`: `libs/`, `include/`, and
+  LICENSE for C API consumers.
+- `audio-<version>-cudart-ubuntu-x64-cuda<toolkit>.tar.gz`: linked CUDA runtime
+  libraries, including cuFFT. Extract beside the binaries, or into `libs/` for
+  the library package. The NVIDIA driver is not bundled.
+
+Separate clean Ubuntu 22.04 containers verify checksums and dependency closure
+without a CUDA toolkit or NCCL installed. Existing upstream C API tests and a
+logged CLI VAD request verify CPU execution from outside the package directories.
+Missing NVIDIA driver libraries are expected on hosted runners; other missing
+dependencies fail the test. CUDA inference requires subsequent GPU validation.
+This is a packaging and runtime test, not a parity or performance benchmark.
+
 ### Windows Unicode Paths
 
 Windows CPU runtime A/B test for [issue #769](https://github.com/0xShug0/audio.cpp/issues/769).
