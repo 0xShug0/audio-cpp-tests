@@ -1,0 +1,71 @@
+name: Windows prebuilt library validation
+on:
+  push:
+    branches: [test/windows-prebuilt-lib-091]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  library:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [cpu, cpu-portable]
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          repository: 0xShug0/audio.cpp
+          run-id: 37571363883
+          github-token: ${{ github.token }}
+          name: audio-v0.9.1-lib-test-2-lib-windows-x64-${{ matrix.package }}
+          path: download
+      - name: Extract and inspect package
+        run: |
+          New-Item -ItemType Directory artifacts -Force | Out-Null
+          Expand-Archive (Get-ChildItem download/*.zip).FullName package
+          Get-ChildItem package -Recurse | Format-Table FullName,Length -AutoSize | Out-File artifacts/package.txt
+          Get-ChildItem package/libs/*.dll | Get-FileHash | Format-Table -AutoSize | Out-File artifacts/dll-hashes.txt
+          Get-CimInstance Win32_Processor | Format-List Name,NumberOfCores,NumberOfLogicalProcessors | Out-File artifacts/cpu.txt
+      - name: Download model and ground truth
+        run: |
+          curl.exe -fL --retry 2 'https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/e36610ac69b5262e914a52635324050bee8f1ad2/Parakeet-TDT-0.6B-v3-GGUF/parakeet-tdt-0.6b-v3-q8_0.gguf' -o model.gguf 2> artifacts/model-download.log
+          if ($LASTEXITCODE) { throw 'Model download failed' }
+          curl.exe -fL --retry 2 'https://raw.githubusercontent.com/0xShug0/audio.cpp/6418a6464039f81dd3bf0560a8dc90a64b1c15bf/assets/asr_validation/librispeech/librispeech_test_clean_6930-75918-0000.wav' -o input.wav 2> artifacts/audio-download.log
+          if ($LASTEXITCODE) { throw 'Audio download failed' }
+          python -c "import wave,array; w=wave.open('input.wav','rb'); assert (w.getnchannels(),w.getsampwidth(),w.getframerate())==(1,2,16000); x=array.array('h',w.readframes(w.getnframes())); array.array('f',(v/32768.0 for v in x)).tofile(open('input.f32','wb'))"
+          if ($LASTEXITCODE) { throw 'PCM preparation failed' }
+          Get-FileHash model.gguf,input.wav | Format-Table -AutoSize | Out-File artifacts/input-hashes.txt
+      - name: Build consumer against shipped header and import library
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
+          $vs = & $vswhere -latest -property installationPath
+          & "$vs/Common7/Tools/Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+          $import = (Get-ChildItem package/libs/audiocpp.lib).FullName
+          cl.exe /nologo /O2 /std:c11 /Ipackage/include tests/windows_prebuilt_lib.c $import /Fe:package/libs/check.exe 2>&1 | Tee-Object artifacts/build.log
+          if ($LASTEXITCODE) { throw 'Client build failed' }
+          dumpbin.exe /dependents package/libs/audiocpp.dll | Out-File artifacts/dependencies.txt
+          dumpbin.exe /dependents package/libs/check.exe | Out-File artifacts/client-dependencies.txt
+      - name: Run real CPU inference twice
+        run: |
+          $model = (Resolve-Path model.gguf).Path
+          $audio = (Resolve-Path input.f32).Path
+          $exe = (Resolve-Path package/libs/check.exe).Path
+          $logs = (Resolve-Path artifacts).Path
+          $process = Start-Process $exe -ArgumentList "`"$model`" `"$audio`"" -WorkingDirectory (Split-Path $exe) -Wait -PassThru -RedirectStandardOutput "$logs/stdout.log" -RedirectStandardError "$logs/stderr.log"
+          Get-Content artifacts/stdout.log
+          Get-Content artifacts/stderr.log
+          "exit_code=$($process.ExitCode)" | Out-File artifacts/exit.txt
+          if ($process.ExitCode -ne 0) { throw "Inference failed: $($process.ExitCode)" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-lib-${{ matrix.package }}-evidence
+          path: artifacts/
+          retention-days: 14
