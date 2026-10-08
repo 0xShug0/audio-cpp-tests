@@ -1,0 +1,61 @@
+name: Windows prebuilt issue 836
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Download published binary and pinned inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory artifacts, downloads, models -Force | Out-Null
+          Get-CimInstance Win32_Processor | Format-List * | Out-File artifacts/cpu.txt
+          Get-ComputerInfo | Out-File artifacts/system.txt
+          gh release download v0.9.1 --repo 0xShug0/audio.cpp --pattern audio-v0.9.1-bin-windows-x64-vulkan.zip --dir downloads
+          if ($LASTEXITCODE) { throw 'Release download failed' }
+          Expand-Archive downloads/audio-v0.9.1-bin-windows-x64-vulkan.zip -DestinationPath prebuilt
+          $revision = '9c78726d0d2cf7ee8511e68ef003490c1251062f'
+          $files = @{
+            'tts.gguf' = "https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/$revision/Qwen3-TTS-12Hz-1.7B-Base-GGUF/qwen3-tts-12hz-1.7b-base-q8_0_v2.gguf"
+            'asr.gguf' = "https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/$revision/Qwen3-ASR-0.6B-GGUF/qwen3-asr-0.6b-q8_0.gguf"
+          }
+          foreach ($entry in $files.GetEnumerator()) {
+            curl.exe -fL --retry 3 $entry.Value -o "models/$($entry.Key)"
+            if ($LASTEXITCODE) { throw "Download failed: $($entry.Key)" }
+          }
+          if ((Get-Item models/tts.gguf).Length -ne 2695175104) { throw 'TTS model size differs from issue 836' }
+          $source = '75d02948'
+          curl.exe -fL --retry 3 "https://raw.githubusercontent.com/0xShug0/audio.cpp/$source/assets/resources/a.wav" -o artifacts/reference.wav
+          if ($LASTEXITCODE) { throw 'Reference download failed' }
+          curl.exe -fL --retry 3 https://download.sysinternals.com/files/Procdump.zip -o downloads/procdump.zip
+          if ($LASTEXITCODE) { throw 'ProcDump download failed' }
+          Expand-Archive downloads/procdump.zip -DestinationPath diagnostics
+          Get-FileHash downloads/*.zip, models/*.gguf, artifacts/reference.wav -Algorithm SHA256 |
+            Format-List | Out-File artifacts/sha256.txt
+          $files | ConvertTo-Json | Set-Content artifacts/input-urls.json
+          'The issue reference WAV is unavailable. reference.wav is the pinned upstream a.wav; this tests the crash, not audio parity.' |
+            Set-Content artifacts/scope.txt
+          & "$env:CONDA/Scripts/conda.exe" create -n qwen3-tts --no-default-packages --offline -y
+          if ($LASTEXITCODE) { throw 'Conda environment creation failed' }
+      - name: Run TTS and ASR control on CPU
+        run: |
+          & "$env:CONDA/Scripts/conda.exe" run --no-capture-output -n qwen3-tts pwsh -NoProfile -File ./test-prebuilt-836.ps1
+          if ($LASTEXITCODE) { throw 'A prebuilt test failed; inspect evidence artifacts' }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: windows-prebuilt-836-evidence
+          path: artifacts/
+          retention-days: 14
