@@ -1,0 +1,151 @@
+name: Windows x64 Vulkan portable
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: audio.cpp revision to build
+        required: true
+        default: v0.9.1
+        type: string
+      version:
+        description: Artifact version, including the v prefix
+        required: true
+        default: v0.9.1
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  VULKAN_VERSION: '1.4.357.0'
+  VERSION: ${{ inputs.version }}
+
+jobs:
+  windows-vulkan-portable:
+    name: Windows x64 (Vulkan portable, AVX2)
+    runs-on: windows-2022
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository == '0xShug0/audio-cpp-tests' && '0xShug0/audio.cpp' || github.repository }}
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
+      - name: Install Vulkan SDK
+        run: |
+          curl.exe -fL --retry 3 -o "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/vulkansdk-windows-X64-${env:VULKAN_VERSION}.exe"
+          if ($LASTEXITCODE) { throw 'Vulkan SDK download failed' }
+          & "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" --accept-licenses --default-answer --confirm-command install
+          if ($LASTEXITCODE) { throw 'Vulkan SDK installation failed' }
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
+      - name: Build
+        run: |
+          $version = $env:VERSION -replace '^v', ''
+          .\scripts\build_windows.ps1 -Preset windows-vulkan-release -Target audiocpp_cli -DeploymentBuild -NativeModelManager -CpuArch avx2 -Jobs 4 -Version $version
+          if ($LASTEXITCODE) { throw 'CLI build failed' }
+          .\scripts\build_windows.ps1 -Preset windows-vulkan-release -Target audiocpp_server -DeploymentBuild -NativeModelManager -CpuArch avx2 -Jobs 4 -Version $version
+          if ($LASTEXITCODE) { throw 'Server build failed' }
+          .\scripts\build_windows.ps1 -Preset windows-vulkan-release -Target audiocpp_gguf -DeploymentBuild -NativeModelManager -CpuArch avx2 -Jobs 4 -Version $version
+          if ($LASTEXITCODE) { throw 'GGUF tool build failed' }
+      - name: Bundle VC runtime
+        working-directory: build/windows-vulkan-release/bin
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -property installationPath
+          $redist = Get-ChildItem "$vs\VC\Redist\MSVC" -Directory |
+            Sort-Object { try { [version]$_.Name } catch { [version]'0.0' } } -Descending |
+            Select-Object -First 1
+          foreach ($sub in 'x64\Microsoft.VC143.CRT', 'x64\Microsoft.VC143.OPENMP') {
+            $dir = Join-Path $redist.FullName $sub
+            if (Test-Path $dir) {
+              Get-ChildItem "$dir\*.dll" | Where-Object {
+                $_.Name -match '^(vcruntime140|msvcp140|vcomp140)'
+              } | Copy-Item -Destination . -ErrorAction Stop
+            }
+          }
+          Get-ChildItem *.dll | Select-Object Name | Out-String | Write-Host
+      - name: Stage bundle
+        working-directory: build/windows-vulkan-release/bin
+        run: |
+          Copy-Item ..\..\..\LICENSE .
+          Copy-Item -Recurse ..\..\..\tools .\tools
+          Copy-Item -Recurse ..\..\..\model_specs .\model_specs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audio-${{ inputs.version }}-bin-windows-x64-vulkan-portable
+          path: build/windows-vulkan-release/bin/*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-vulkan-portable-build-config
+          path: |
+            build/windows-vulkan-release/CMakeCache.txt
+            build/windows-vulkan-release/build.ninja
+
+  validate:
+    name: Validate downloaded portable artifact
+    needs: windows-vulkan-portable
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: audio-${{ inputs.version }}-bin-windows-x64-vulkan-portable
+          path: prebuilt
+      - name: Prepare CPU validation
+        id: prepare
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory artifacts, downloads, models -Force | Out-Null
+          Get-CimInstance Win32_Processor | Format-List * | Out-File artifacts/cpu.txt
+          # Hosted runners lack the Vulkan loader normally installed by GPU drivers.
+          curl.exe -fL --retry 3 "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/VulkanRT-X64-${env:VULKAN_VERSION}-Components.zip" -o downloads/vulkan-runtime.zip
+          if ($LASTEXITCODE) { throw 'Vulkan runtime download failed' }
+          Expand-Archive downloads/vulkan-runtime.zip -DestinationPath vulkan-runtime
+          Copy-Item "vulkan-runtime/VulkanRT-X64-${env:VULKAN_VERSION}-Components/x64/vulkan-1.dll" prebuilt/
+          $revision = '9c78726d0d2cf7ee8511e68ef003490c1251062f'
+          $files = @{
+            'tts.gguf' = "https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/$revision/Qwen3-TTS-12Hz-1.7B-Base-GGUF/qwen3-tts-12hz-1.7b-base-q8_0_v2.gguf"
+            'asr.gguf' = "https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/$revision/Qwen3-ASR-0.6B-GGUF/qwen3-asr-0.6b-q8_0.gguf"
+          }
+          foreach ($entry in $files.GetEnumerator()) {
+            curl.exe -fL --retry 3 $entry.Value -o "models/$($entry.Key)"
+            if ($LASTEXITCODE) { throw "Model download failed: $($entry.Key)" }
+          }
+          curl.exe -fL --retry 3 https://raw.githubusercontent.com/0xShug0/audio.cpp/75d02948/assets/resources/a.wav -o artifacts/reference.wav
+          if ($LASTEXITCODE) { throw 'Reference download failed' }
+          Get-FileHash prebuilt/*.exe, prebuilt/*.dll, models/*.gguf, artifacts/reference.wav |
+            Format-List | Out-File artifacts/sha256.txt
+          & "$env:CONDA/Scripts/conda.exe" create -n qwen3-tts --no-default-packages --offline -y
+          if ($LASTEXITCODE) { throw 'Conda environment creation failed' }
+      - name: Qwen3-TTS CPU request
+        run: |
+          & "$env:CONDA/Scripts/conda.exe" run --no-capture-output -n qwen3-tts prebuilt/audiocpp_cli.exe --task tts --family qwen3_tts --model models/tts.gguf --backend cpu --text 'Test.' --language French --voice-ref artifacts/reference.wav --reference-text 'Ceci est un test de ma voix.' --out artifacts/tts.wav --log 2>&1 | Tee-Object artifacts/tts.log
+          $code = $LASTEXITCODE
+          "exit_code=$code" | Set-Content artifacts/tts-exit.txt
+          if ($code) { throw 'Qwen3-TTS CPU failed' }
+          if (!(Test-Path artifacts/tts.wav) -or (Get-Item artifacts/tts.wav).Length -le 44) { throw 'Missing TTS output' }
+          if (!(Select-String -Path artifacts/tts.log -SimpleMatch 'session.wall_ms')) { throw 'Missing session timing' }
+      - name: Qwen3-ASR CPU control
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: |
+          & "$env:CONDA/Scripts/conda.exe" run --no-capture-output -n qwen3-tts prebuilt/audiocpp_cli.exe --task asr --family qwen3_asr --model models/asr.gguf --backend cpu --audio artifacts/reference.wav --language English --log 2>&1 | Tee-Object artifacts/asr.log
+          $code = $LASTEXITCODE
+          "exit_code=$code" | Set-Content artifacts/asr-exit.txt
+          if ($code) { throw 'Qwen3-ASR CPU failed' }
+          if (!(Select-String -Path artifacts/asr.log -SimpleMatch 'session.wall_ms')) { throw 'Missing session timing' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-vulkan-portable-validation
+          path: artifacts/
+          retention-days: 14
