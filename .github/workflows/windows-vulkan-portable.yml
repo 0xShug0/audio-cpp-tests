@@ -13,9 +13,15 @@ on:
         required: true
         default: v0.9.1
         type: string
+      artifact_run_id:
+        description: Optional existing run ID to validate without rebuilding
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 env:
   VULKAN_VERSION: '1.4.357.0'
@@ -23,6 +29,7 @@ env:
 
 jobs:
   windows-vulkan-portable:
+    if: ${{ inputs.artifact_run_id == '' }}
     name: Windows x64 (Vulkan portable, AVX2)
     runs-on: windows-2022
     timeout-minutes: 120
@@ -91,6 +98,7 @@ jobs:
   validate:
     name: Validate downloaded portable artifact
     needs: windows-vulkan-portable
+    if: ${{ !cancelled() && (needs.windows-vulkan-portable.result == 'success' || inputs.artifact_run_id != '') }}
     runs-on: windows-2022
     timeout-minutes: 30
     defaults:
@@ -101,6 +109,8 @@ jobs:
         with:
           name: audio-${{ inputs.version }}-bin-windows-x64-vulkan-portable
           path: prebuilt
+          run-id: ${{ inputs.artifact_run_id || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Prepare CPU validation
         id: prepare
         run: |
@@ -129,7 +139,8 @@ jobs:
           if ($LASTEXITCODE) { throw 'Conda environment creation failed' }
       - name: Qwen3-TTS CPU request
         run: |
-          & "$env:CONDA/Scripts/conda.exe" run --no-capture-output -n qwen3-tts prebuilt/audiocpp_cli.exe --task tts --family qwen3_tts --model models/tts.gguf --backend cpu --text 'Test.' --language French --voice-ref artifacts/reference.wav --reference-text 'Ceci est un test de ma voix.' --out artifacts/tts.wav --log 2>&1 | Tee-Object artifacts/tts.log
+          $cli = (Resolve-Path prebuilt/audiocpp_cli.exe).Path
+          & "$env:CONDA/Scripts/conda.exe" run --no-capture-output -n qwen3-tts $cli --task tts --family qwen3_tts --model models/tts.gguf --backend cpu --text 'Test.' --language French --voice-ref artifacts/reference.wav --reference-text 'Ceci est un test de ma voix.' --out artifacts/tts.wav --log 2>&1 | Tee-Object artifacts/tts.log
           $code = $LASTEXITCODE
           "exit_code=$code" | Set-Content artifacts/tts-exit.txt
           if ($code) { throw 'Qwen3-TTS CPU failed' }
@@ -138,7 +149,8 @@ jobs:
       - name: Qwen3-ASR CPU control
         if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
         run: |
-          & "$env:CONDA/Scripts/conda.exe" run --no-capture-output -n qwen3-tts prebuilt/audiocpp_cli.exe --task asr --family qwen3_asr --model models/asr.gguf --backend cpu --audio artifacts/reference.wav --language English --log 2>&1 | Tee-Object artifacts/asr.log
+          $cli = (Resolve-Path prebuilt/audiocpp_cli.exe).Path
+          & "$env:CONDA/Scripts/conda.exe" run --no-capture-output -n qwen3-tts $cli --task asr --family qwen3_asr --model models/asr.gguf --backend cpu --audio artifacts/reference.wav --language English --log 2>&1 | Tee-Object artifacts/asr.log
           $code = $LASTEXITCODE
           "exit_code=$code" | Set-Content artifacts/asr-exit.txt
           if ($code) { throw 'Qwen3-ASR CPU failed' }
