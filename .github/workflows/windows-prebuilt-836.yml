@@ -26,6 +26,12 @@ jobs:
           gh release download v0.9.1 --repo 0xShug0/audio.cpp --pattern audio-v0.9.1-bin-windows-x64-vulkan.zip --dir downloads
           if ($LASTEXITCODE) { throw 'Release download failed' }
           Expand-Archive downloads/audio-v0.9.1-bin-windows-x64-vulkan.zip -DestinationPath prebuilt
+          # GPU drivers normally provide this loader; hosted runners have no GPU driver.
+          curl.exe -fL --retry 3 https://sdk.lunarg.com/sdk/download/1.4.357.0/windows/VulkanRT-X64-1.4.357.0-Components.zip -o downloads/vulkan-runtime.zip
+          if ($LASTEXITCODE) { throw 'Vulkan runtime download failed' }
+          Expand-Archive downloads/vulkan-runtime.zip -DestinationPath vulkan-runtime
+          $cli = Get-ChildItem prebuilt -Filter audiocpp_cli.exe -Recurse | Select-Object -First 1
+          Copy-Item vulkan-runtime/VulkanRT-X64-1.4.357.0-Components/x64/vulkan-1.dll $cli.DirectoryName
           $revision = '9c78726d0d2cf7ee8511e68ef003490c1251062f'
           $files = @{
             'tts.gguf' = "https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/$revision/Qwen3-TTS-12Hz-1.7B-Base-GGUF/qwen3-tts-12hz-1.7b-base-q8_0_v2.gguf"
