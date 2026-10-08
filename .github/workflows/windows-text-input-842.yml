@@ -1,0 +1,79 @@
+name: Windows text input issue 842
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    runs-on: windows-2022
+    timeout-minutes: 5
+    steps:
+      - name: Get the exact reported input
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory artifacts | Out-Null
+          $raw = gh api repos/0xShug0/audio.cpp/issues/comments/6069657408
+          if ($LASTEXITCODE) { throw 'Cannot read issue comment' }
+          $raw | Set-Content artifacts/issue-comment.json
+          $comment = $raw | ConvertFrom-Json
+          $match = [regex]::Match($comment.body, 'and the input text2.txt:\s*`([^`]+)`')
+          if (-not $match.Success) { throw 'Reported paragraph not found' }
+          $text = $match.Groups[1].Value
+          if ($text.Length -ne 1641) { throw 'Reported input changed' }
+          [IO.File]::WriteAllText("$PWD/artifacts/text2.txt", $text, [Text.UTF8Encoding]::new($false))
+          python.exe --version
+      - name: Original batch argument
+        shell: cmd
+        run: |
+          @echo off
+          set /p TEXT=<artifacts\text2.txt
+          python.exe -c "import sys,json; print(json.dumps({'args':sys.argv[1:]}))" --text "%TEXT%" > artifacts\batch.json
+      - name: Windows PowerShell replacement argument
+        shell: powershell
+        run: |
+          $text = Get-Content -Raw .\artifacts\text2.txt
+          & python.exe -c "import sys,json; print(json.dumps({'args':sys.argv[1:]}))" --text $text | Set-Content artifacts/windows-powershell.json
+          $PSVersionTable | Out-String | Set-Content artifacts/windows-powershell-version.txt
+      - name: PowerShell 7 replacement argument
+        shell: pwsh
+        run: |
+          $text = Get-Content -Raw .\artifacts\text2.txt
+          & python.exe -c "import sys,json; print(json.dumps({'args':sys.argv[1:]}))" --text $text | Set-Content artifacts/pwsh.json
+          $PSVersionTable | Out-String | Set-Content artifacts/pwsh-version.txt
+      - name: Check the actual received arguments
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $full = Get-Content -Raw artifacts/text2.txt
+          $results = foreach ($name in 'batch', 'windows-powershell', 'pwsh') {
+            $received = Get-Content -Raw "artifacts/$name.json" | ConvertFrom-Json
+            if ($received.args.Count -ne 2 -or $received.args[0] -ne '--text') {
+              throw "$name did not pass one --text value"
+            }
+            $value = $received.args[1]
+            $expected = if ($name -eq 'batch') { $full.Substring(0, 1023) } else { $full }
+            if ($value -cne $expected) { throw "$name differs from the expected input" }
+            [pscustomobject]@{
+              method = $name
+              input_chars = $full.Length
+              received_chars = $value.Length
+              lost_chars = $full.Length - $value.Length
+              exact_full_text = $value -ceq $full
+              tail = $value.Substring([Math]::Max(0, $value.Length - 60))
+            }
+          }
+          $results | ConvertTo-Json | Tee-Object -FilePath artifacts/results.json
+          $results | Format-Table method,input_chars,received_chars,lost_chars,exact_full_text | Out-String | Tee-Object -FilePath artifacts/results.txt
+          Get-Content artifacts/results.txt | Add-Content $env:GITHUB_STEP_SUMMARY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: windows-text-input-842
+          path: artifacts/
+          retention-days: 14
