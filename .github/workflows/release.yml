@@ -148,40 +148,6 @@ jobs:
         with:
           name: audio-${{ needs.get-version.outputs.tag }}-bin-macos-${{ matrix.arch }}-metal
           path: build/bin/*
-      - name: Record library provenance and dependencies
-        shell: python {0}
-        env:
-          RELEASE_VERSION: ${{ needs.get-version.outputs.version }}
-          SOURCE_REPOSITORY: ${{ inputs.source_repository || github.repository }}
-        run: |
-          import json, os, pathlib, re, subprocess
-          root = pathlib.Path("dist-lib")
-          root.mkdir(exist_ok=True)
-          header = pathlib.Path("include/audiocpp.h").read_text()
-          cmake = pathlib.Path("CMakeLists.txt").read_text()
-          properties = re.search(r"set_target_properties\(audiocpp PROPERTIES(.*?)\n\s*\)", cmake, re.S).group(1)
-          abi = ".".join(re.search(r"#define AUDIOCPP_ABI_VERSION_" + part + r"\s+(\d+)", header).group(1) for part in ("MAJOR", "MINOR", "PATCH"))
-          manifest = {
-              "release_version": os.environ["RELEASE_VERSION"],
-              "source_repository": os.environ["SOURCE_REPOSITORY"],
-              "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-              "c_abi_version": abi,
-              "shared_library_version": re.search(r"\bVERSION\s+(\S+)", properties).group(1),
-              "shared_library_soversion": re.search(r"\bSOVERSION\s+(\S+)", properties).group(1),
-          }
-          (root / "build-info.json").write_text(json.dumps(manifest, indent=2) + "\n")
-          (root / "README.txt").write_text(
-              "Headers are in include/; libraries and backend modules are in libs/.\n"
-              "Keep the supplied library names, symlinks and backend modules together.\n"
-              "For dynamic backend packages, put the ggml modules beside the host executable\n"
-              "or in its working directory; the backend loader searches those locations.\n"
-              "Release, C ABI and shared-library versions are recorded separately in build-info.json.\n"
-              "Packaging preserves the source-defined library version and ABI; it does not rewrite them.\n"
-              "eSpeak-ng and its language data are external dependencies for models such as Kokoro.\n"
-              "CUDA packages require the matching platform/toolkit cudart archive and an NVIDIA driver.\n"
-              "Extract cudart beside the libraries in libs/. On Linux add libs/ to LD_LIBRARY_PATH;\n"
-              "on Windows add it to the DLL search path (e.g. os.add_dll_directory for Python).\n"
-          )
       - name: Build and stage C API library
         run: |
           cmake -S . -B build -DAUDIOCPP_BUILD_C_API=ON
@@ -228,40 +194,6 @@ jobs:
         with:
           name: audio-${{ needs.get-version.outputs.tag }}-bin-ubuntu-x64-cpu
           path: build/bin/*
-      - name: Record library provenance and dependencies
-        shell: python {0}
-        env:
-          RELEASE_VERSION: ${{ needs.get-version.outputs.version }}
-          SOURCE_REPOSITORY: ${{ inputs.source_repository || github.repository }}
-        run: |
-          import json, os, pathlib, re, subprocess
-          root = pathlib.Path("dist-lib")
-          root.mkdir(exist_ok=True)
-          header = pathlib.Path("include/audiocpp.h").read_text()
-          cmake = pathlib.Path("CMakeLists.txt").read_text()
-          properties = re.search(r"set_target_properties\(audiocpp PROPERTIES(.*?)\n\s*\)", cmake, re.S).group(1)
-          abi = ".".join(re.search(r"#define AUDIOCPP_ABI_VERSION_" + part + r"\s+(\d+)", header).group(1) for part in ("MAJOR", "MINOR", "PATCH"))
-          manifest = {
-              "release_version": os.environ["RELEASE_VERSION"],
-              "source_repository": os.environ["SOURCE_REPOSITORY"],
-              "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-              "c_abi_version": abi,
-              "shared_library_version": re.search(r"\bVERSION\s+(\S+)", properties).group(1),
-              "shared_library_soversion": re.search(r"\bSOVERSION\s+(\S+)", properties).group(1),
-          }
-          (root / "build-info.json").write_text(json.dumps(manifest, indent=2) + "\n")
-          (root / "README.txt").write_text(
-              "Headers are in include/; libraries and backend modules are in libs/.\n"
-              "Keep the supplied library names, symlinks and backend modules together.\n"
-              "For dynamic backend packages, put the ggml modules beside the host executable\n"
-              "or in its working directory; the backend loader searches those locations.\n"
-              "Release, C ABI and shared-library versions are recorded separately in build-info.json.\n"
-              "Packaging preserves the source-defined library version and ABI; it does not rewrite them.\n"
-              "eSpeak-ng and its language data are external dependencies for models such as Kokoro.\n"
-              "CUDA packages require the matching platform/toolkit cudart archive and an NVIDIA driver.\n"
-              "Extract cudart beside the libraries in libs/. On Linux add libs/ to LD_LIBRARY_PATH;\n"
-              "on Windows add it to the DLL search path (e.g. os.add_dll_directory for Python).\n"
-          )
       - name: Build and stage C API library
         run: |
           cmake -S . -B build -DAUDIOCPP_BUILD_C_API=ON
@@ -310,40 +242,6 @@ jobs:
         with:
           name: audio-${{ needs.get-version.outputs.tag }}-bin-ubuntu-x64-cpu-portable
           path: build/bin/*
-      - name: Record library provenance and dependencies
-        shell: python {0}
-        env:
-          RELEASE_VERSION: ${{ needs.get-version.outputs.version }}
-          SOURCE_REPOSITORY: ${{ inputs.source_repository || github.repository }}
-        run: |
-          import json, os, pathlib, re, subprocess
-          root = pathlib.Path("dist-lib")
-          root.mkdir(exist_ok=True)
-          header = pathlib.Path("include/audiocpp.h").read_text()
-          cmake = pathlib.Path("CMakeLists.txt").read_text()
-          properties = re.search(r"set_target_properties\(audiocpp PROPERTIES(.*?)\n\s*\)", cmake, re.S).group(1)
-          abi = ".".join(re.search(r"#define AUDIOCPP_ABI_VERSION_" + part + r"\s+(\d+)", header).group(1) for part in ("MAJOR", "MINOR", "PATCH"))
-          manifest = {
-              "release_version": os.environ["RELEASE_VERSION"],
-              "source_repository": os.environ["SOURCE_REPOSITORY"],
-              "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-              "c_abi_version": abi,
-              "shared_library_version": re.search(r"\bVERSION\s+(\S+)", properties).group(1),
-              "shared_library_soversion": re.search(r"\bSOVERSION\s+(\S+)", properties).group(1),
-          }
-          (root / "build-info.json").write_text(json.dumps(manifest, indent=2) + "\n")
-          (root / "README.txt").write_text(
-              "Headers are in include/; libraries and backend modules are in libs/.\n"
-              "Keep the supplied library names, symlinks and backend modules together.\n"
-              "For dynamic backend packages, put the ggml modules beside the host executable\n"
-              "or in its working directory; the backend loader searches those locations.\n"
-              "Release, C ABI and shared-library versions are recorded separately in build-info.json.\n"
-              "Packaging preserves the source-defined library version and ABI; it does not rewrite them.\n"
-              "eSpeak-ng and its language data are external dependencies for models such as Kokoro.\n"
-              "CUDA packages require the matching platform/toolkit cudart archive and an NVIDIA driver.\n"
-              "Extract cudart beside the libraries in libs/. On Linux add libs/ to LD_LIBRARY_PATH;\n"
-              "on Windows add it to the DLL search path (e.g. os.add_dll_directory for Python).\n"
-          )
       - name: Build and stage C API library
         run: |
           cmake -S . -B build -DAUDIOCPP_BUILD_C_API=ON
@@ -390,40 +288,6 @@ jobs:
         with:
           name: audio-${{ needs.get-version.outputs.tag }}-bin-ubuntu-x64-vulkan
           path: build/bin/*
-      - name: Record library provenance and dependencies
-        shell: python {0}
-        env:
-          RELEASE_VERSION: ${{ needs.get-version.outputs.version }}
-          SOURCE_REPOSITORY: ${{ inputs.source_repository || github.repository }}
-        run: |
-          import json, os, pathlib, re, subprocess
-          root = pathlib.Path("dist-lib")
-          root.mkdir(exist_ok=True)
-          header = pathlib.Path("include/audiocpp.h").read_text()
-          cmake = pathlib.Path("CMakeLists.txt").read_text()
-          properties = re.search(r"set_target_properties\(audiocpp PROPERTIES(.*?)\n\s*\)", cmake, re.S).group(1)
-          abi = ".".join(re.search(r"#define AUDIOCPP_ABI_VERSION_" + part + r"\s+(\d+)", header).group(1) for part in ("MAJOR", "MINOR", "PATCH"))
-          manifest = {
-              "release_version": os.environ["RELEASE_VERSION"],
-              "source_repository": os.environ["SOURCE_REPOSITORY"],
-              "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-              "c_abi_version": abi,
-              "shared_library_version": re.search(r"\bVERSION\s+(\S+)", properties).group(1),
-              "shared_library_soversion": re.search(r"\bSOVERSION\s+(\S+)", properties).group(1),
-          }
-          (root / "build-info.json").write_text(json.dumps(manifest, indent=2) + "\n")
-          (root / "README.txt").write_text(
-              "Headers are in include/; libraries and backend modules are in libs/.\n"
-              "Keep the supplied library names, symlinks and backend modules together.\n"
-              "For dynamic backend packages, put the ggml modules beside the host executable\n"
-              "or in its working directory; the backend loader searches those locations.\n"
-              "Release, C ABI and shared-library versions are recorded separately in build-info.json.\n"
-              "Packaging preserves the source-defined library version and ABI; it does not rewrite them.\n"
-              "eSpeak-ng and its language data are external dependencies for models such as Kokoro.\n"
-              "CUDA packages require the matching platform/toolkit cudart archive and an NVIDIA driver.\n"
-              "Extract cudart beside the libraries in libs/. On Linux add libs/ to LD_LIBRARY_PATH;\n"
-              "on Windows add it to the DLL search path (e.g. os.add_dll_directory for Python).\n"
-          )
       - name: Build and stage C API library
         run: |
           cmake -S . -B build -DAUDIOCPP_BUILD_C_API=ON
@@ -472,40 +336,6 @@ jobs:
         with:
           name: audio-${{ needs.get-version.outputs.tag }}-bin-ubuntu-x64-vulkan-portable
           path: build/bin/*
-      - name: Record library provenance and dependencies
-        shell: python {0}
-        env:
-          RELEASE_VERSION: ${{ needs.get-version.outputs.version }}
-          SOURCE_REPOSITORY: ${{ inputs.source_repository || github.repository }}
-        run: |
-          import json, os, pathlib, re, subprocess
-          root = pathlib.Path("dist-lib")
-          root.mkdir(exist_ok=True)
-          header = pathlib.Path("include/audiocpp.h").read_text()
-          cmake = pathlib.Path("CMakeLists.txt").read_text()
-          properties = re.search(r"set_target_properties\(audiocpp PROPERTIES(.*?)\n\s*\)", cmake, re.S).group(1)
-          abi = ".".join(re.search(r"#define AUDIOCPP_ABI_VERSION_" + part + r"\s+(\d+)", header).group(1) for part in ("MAJOR", "MINOR", "PATCH"))
-          manifest = {
-              "release_version": os.environ["RELEASE_VERSION"],
-              "source_repository": os.environ["SOURCE_REPOSITORY"],
-              "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-              "c_abi_version": abi,
-              "shared_library_version": re.search(r"\bVERSION\s+(\S+)", properties).group(1),
-              "shared_library_soversion": re.search(r"\bSOVERSION\s+(\S+)", properties).group(1),
-          }
-          (root / "build-info.json").write_text(json.dumps(manifest, indent=2) + "\n")
-          (root / "README.txt").write_text(
-              "Headers are in include/; libraries and backend modules are in libs/.\n"
-              "Keep the supplied library names, symlinks and backend modules together.\n"
-              "For dynamic backend packages, put the ggml modules beside the host executable\n"
-              "or in its working directory; the backend loader searches those locations.\n"
-              "Release, C ABI and shared-library versions are recorded separately in build-info.json.\n"
-              "Packaging preserves the source-defined library version and ABI; it does not rewrite them.\n"
-              "eSpeak-ng and its language data are external dependencies for models such as Kokoro.\n"
-              "CUDA packages require the matching platform/toolkit cudart archive and an NVIDIA driver.\n"
-              "Extract cudart beside the libraries in libs/. On Linux add libs/ to LD_LIBRARY_PATH;\n"
-              "on Windows add it to the DLL search path (e.g. os.add_dll_directory for Python).\n"
-          )
       - name: Build and stage C API library
         run: |
           cmake -S . -B build -DAUDIOCPP_BUILD_C_API=ON
@@ -571,40 +401,6 @@ jobs:
             -DENGINE_ENABLE_LLAMAFILE=ON -DENGINE_ENABLE_CUDA_GRAPHS=ON \
             -DAUDIOCPP_VERSION=${{ needs.get-version.outputs.version }}
           cmake --build build --parallel "$(nproc)" --target audiocpp
-      - name: Record library provenance and dependencies
-        shell: python {0}
-        env:
-          RELEASE_VERSION: ${{ needs.get-version.outputs.version }}
-          SOURCE_REPOSITORY: ${{ inputs.source_repository || github.repository }}
-        run: |
-          import json, os, pathlib, re, subprocess
-          root = pathlib.Path("dist-lib")
-          root.mkdir(exist_ok=True)
-          header = pathlib.Path("include/audiocpp.h").read_text()
-          cmake = pathlib.Path("CMakeLists.txt").read_text()
-          properties = re.search(r"set_target_properties\(audiocpp PROPERTIES(.*?)\n\s*\)", cmake, re.S).group(1)
-          abi = ".".join(re.search(r"#define AUDIOCPP_ABI_VERSION_" + part + r"\s+(\d+)", header).group(1) for part in ("MAJOR", "MINOR", "PATCH"))
-          manifest = {
-              "release_version": os.environ["RELEASE_VERSION"],
-              "source_repository": os.environ["SOURCE_REPOSITORY"],
-              "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-              "c_abi_version": abi,
-              "shared_library_version": re.search(r"\bVERSION\s+(\S+)", properties).group(1),
-              "shared_library_soversion": re.search(r"\bSOVERSION\s+(\S+)", properties).group(1),
-          }
-          (root / "build-info.json").write_text(json.dumps(manifest, indent=2) + "\n")
-          (root / "README.txt").write_text(
-              "Headers are in include/; libraries and backend modules are in libs/.\n"
-              "Keep the supplied library names, symlinks and backend modules together.\n"
-              "For dynamic backend packages, put the ggml modules beside the host executable\n"
-              "or in its working directory; the backend loader searches those locations.\n"
-              "Release, C ABI and shared-library versions are recorded separately in build-info.json.\n"
-              "Packaging preserves the source-defined library version and ABI; it does not rewrite them.\n"
-              "eSpeak-ng and its language data are external dependencies for models such as Kokoro.\n"
-              "CUDA packages require the matching platform/toolkit cudart archive and an NVIDIA driver.\n"
-              "Extract cudart beside the libraries in libs/. On Linux add libs/ to LD_LIBRARY_PATH;\n"
-              "on Windows add it to the DLL search path (e.g. os.add_dll_directory for Python).\n"
-          )
       - name: Stage library
         run: |
           mkdir -p dist-lib/libs dist-lib/include dist-cudart
@@ -615,7 +411,6 @@ jobs:
           awk '$3 ~ /^\/usr\/local\/cuda/ {print $1, $3}' build/library-dependencies.txt |
             sort -u | while read -r name path; do cp -L "$path" "dist-cudart/$name"; done
           cp /usr/share/doc/gcc-13-base/copyright dist-lib/GCC-RUNTIME-LICENSE
-          cp dist-lib/build-info.json dist-cudart/
           tar -czf audio-${{ needs.get-version.outputs.tag }}-cudart-ubuntu-x64-cuda${{ matrix.label }}.tar.gz -C dist-cudart .
           tar -czf audio-${{ needs.get-version.outputs.tag }}-lib-ubuntu-x64-cuda${{ matrix.label }}.tar.gz -C dist-lib .
       - uses: actions/upload-artifact@v4
@@ -749,40 +544,6 @@ jobs:
         with:
           name: audio-${{ needs.get-version.outputs.tag }}-bin-windows-x64-cpu
           path: build/windows-cpu-release/bin/*
-      - name: Record library provenance and dependencies
-        shell: python {0}
-        env:
-          RELEASE_VERSION: ${{ needs.get-version.outputs.version }}
-          SOURCE_REPOSITORY: ${{ inputs.source_repository || github.repository }}
-        run: |
-          import json, os, pathlib, re, subprocess
-          root = pathlib.Path("dist-lib")
-          root.mkdir(exist_ok=True)
-          header = pathlib.Path("include/audiocpp.h").read_text()
-          cmake = pathlib.Path("CMakeLists.txt").read_text()
-          properties = re.search(r"set_target_properties\(audiocpp PROPERTIES(.*?)\n\s*\)", cmake, re.S).group(1)
-          abi = ".".join(re.search(r"#define AUDIOCPP_ABI_VERSION_" + part + r"\s+(\d+)", header).group(1) for part in ("MAJOR", "MINOR", "PATCH"))
-          manifest = {
-              "release_version": os.environ["RELEASE_VERSION"],
-              "source_repository": os.environ["SOURCE_REPOSITORY"],
-              "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-              "c_abi_version": abi,
-              "shared_library_version": re.search(r"\bVERSION\s+(\S+)", properties).group(1),
-              "shared_library_soversion": re.search(r"\bSOVERSION\s+(\S+)", properties).group(1),
-          }
-          (root / "build-info.json").write_text(json.dumps(manifest, indent=2) + "\n")
-          (root / "README.txt").write_text(
-              "Headers are in include/; libraries and backend modules are in libs/.\n"
-              "Keep the supplied library names, symlinks and backend modules together.\n"
-              "For dynamic backend packages, put the ggml modules beside the host executable\n"
-              "or in its working directory; the backend loader searches those locations.\n"
-              "Release, C ABI and shared-library versions are recorded separately in build-info.json.\n"
-              "Packaging preserves the source-defined library version and ABI; it does not rewrite them.\n"
-              "eSpeak-ng and its language data are external dependencies for models such as Kokoro.\n"
-              "CUDA packages require the matching platform/toolkit cudart archive and an NVIDIA driver.\n"
-              "Extract cudart beside the libraries in libs/. On Linux add libs/ to LD_LIBRARY_PATH;\n"
-              "on Windows add it to the DLL search path (e.g. os.add_dll_directory for Python).\n"
-          )
       - name: Build and stage C API library
         shell: pwsh
         run: |
@@ -856,40 +617,6 @@ jobs:
         with:
           name: audio-${{ needs.get-version.outputs.tag }}-bin-windows-x64-cpu-portable
           path: build/windows-cpu-release/bin/*
-      - name: Record library provenance and dependencies
-        shell: python {0}
-        env:
-          RELEASE_VERSION: ${{ needs.get-version.outputs.version }}
-          SOURCE_REPOSITORY: ${{ inputs.source_repository || github.repository }}
-        run: |
-          import json, os, pathlib, re, subprocess
-          root = pathlib.Path("dist-lib")
-          root.mkdir(exist_ok=True)
-          header = pathlib.Path("include/audiocpp.h").read_text()
-          cmake = pathlib.Path("CMakeLists.txt").read_text()
-          properties = re.search(r"set_target_properties\(audiocpp PROPERTIES(.*?)\n\s*\)", cmake, re.S).group(1)
-          abi = ".".join(re.search(r"#define AUDIOCPP_ABI_VERSION_" + part + r"\s+(\d+)", header).group(1) for part in ("MAJOR", "MINOR", "PATCH"))
-          manifest = {
-              "release_version": os.environ["RELEASE_VERSION"],
-              "source_repository": os.environ["SOURCE_REPOSITORY"],
-              "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-              "c_abi_version": abi,
-              "shared_library_version": re.search(r"\bVERSION\s+(\S+)", properties).group(1),
-              "shared_library_soversion": re.search(r"\bSOVERSION\s+(\S+)", properties).group(1),
-          }
-          (root / "build-info.json").write_text(json.dumps(manifest, indent=2) + "\n")
-          (root / "README.txt").write_text(
-              "Headers are in include/; libraries and backend modules are in libs/.\n"
-              "Keep the supplied library names, symlinks and backend modules together.\n"
-              "For dynamic backend packages, put the ggml modules beside the host executable\n"
-              "or in its working directory; the backend loader searches those locations.\n"
-              "Release, C ABI and shared-library versions are recorded separately in build-info.json.\n"
-              "Packaging preserves the source-defined library version and ABI; it does not rewrite them.\n"
-              "eSpeak-ng and its language data are external dependencies for models such as Kokoro.\n"
-              "CUDA packages require the matching platform/toolkit cudart archive and an NVIDIA driver.\n"
-              "Extract cudart beside the libraries in libs/. On Linux add libs/ to LD_LIBRARY_PATH;\n"
-              "on Windows add it to the DLL search path (e.g. os.add_dll_directory for Python).\n"
-          )
       - name: Build and stage C API library
         shell: pwsh
         run: |
@@ -967,40 +694,6 @@ jobs:
         with:
           name: audio-${{ needs.get-version.outputs.tag }}-bin-windows-x64-vulkan
           path: build/windows-vulkan-release/bin/*
-      - name: Record library provenance and dependencies
-        shell: python {0}
-        env:
-          RELEASE_VERSION: ${{ needs.get-version.outputs.version }}
-          SOURCE_REPOSITORY: ${{ inputs.source_repository || github.repository }}
-        run: |
-          import json, os, pathlib, re, subprocess
-          root = pathlib.Path("dist-lib")
-          root.mkdir(exist_ok=True)
-          header = pathlib.Path("include/audiocpp.h").read_text()
-          cmake = pathlib.Path("CMakeLists.txt").read_text()
-          properties = re.search(r"set_target_properties\(audiocpp PROPERTIES(.*?)\n\s*\)", cmake, re.S).group(1)
-          abi = ".".join(re.search(r"#define AUDIOCPP_ABI_VERSION_" + part + r"\s+(\d+)", header).group(1) for part in ("MAJOR", "MINOR", "PATCH"))
-          manifest = {
-              "release_version": os.environ["RELEASE_VERSION"],
-              "source_repository": os.environ["SOURCE_REPOSITORY"],
-              "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-              "c_abi_version": abi,
-              "shared_library_version": re.search(r"\bVERSION\s+(\S+)", properties).group(1),
-              "shared_library_soversion": re.search(r"\bSOVERSION\s+(\S+)", properties).group(1),
-          }
-          (root / "build-info.json").write_text(json.dumps(manifest, indent=2) + "\n")
-          (root / "README.txt").write_text(
-              "Headers are in include/; libraries and backend modules are in libs/.\n"
-              "Keep the supplied library names, symlinks and backend modules together.\n"
-              "For dynamic backend packages, put the ggml modules beside the host executable\n"
-              "or in its working directory; the backend loader searches those locations.\n"
-              "Release, C ABI and shared-library versions are recorded separately in build-info.json.\n"
-              "Packaging preserves the source-defined library version and ABI; it does not rewrite them.\n"
-              "eSpeak-ng and its language data are external dependencies for models such as Kokoro.\n"
-              "CUDA packages require the matching platform/toolkit cudart archive and an NVIDIA driver.\n"
-              "Extract cudart beside the libraries in libs/. On Linux add libs/ to LD_LIBRARY_PATH;\n"
-              "on Windows add it to the DLL search path (e.g. os.add_dll_directory for Python).\n"
-          )
       - name: Build and stage C API library
         shell: pwsh
         run: |
@@ -1083,40 +776,6 @@ jobs:
         with:
           name: audio-${{ needs.get-version.outputs.tag }}-bin-windows-x64-vulkan-portable
           path: build/windows-vulkan-release/bin/*
-      - name: Record library provenance and dependencies
-        shell: python {0}
-        env:
-          RELEASE_VERSION: ${{ needs.get-version.outputs.version }}
-          SOURCE_REPOSITORY: ${{ inputs.source_repository || github.repository }}
-        run: |
-          import json, os, pathlib, re, subprocess
-          root = pathlib.Path("dist-lib")
-          root.mkdir(exist_ok=True)
-          header = pathlib.Path("include/audiocpp.h").read_text()
-          cmake = pathlib.Path("CMakeLists.txt").read_text()
-          properties = re.search(r"set_target_properties\(audiocpp PROPERTIES(.*?)\n\s*\)", cmake, re.S).group(1)
-          abi = ".".join(re.search(r"#define AUDIOCPP_ABI_VERSION_" + part + r"\s+(\d+)", header).group(1) for part in ("MAJOR", "MINOR", "PATCH"))
-          manifest = {
-              "release_version": os.environ["RELEASE_VERSION"],
-              "source_repository": os.environ["SOURCE_REPOSITORY"],
-              "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-              "c_abi_version": abi,
-              "shared_library_version": re.search(r"\bVERSION\s+(\S+)", properties).group(1),
-              "shared_library_soversion": re.search(r"\bSOVERSION\s+(\S+)", properties).group(1),
-          }
-          (root / "build-info.json").write_text(json.dumps(manifest, indent=2) + "\n")
-          (root / "README.txt").write_text(
-              "Headers are in include/; libraries and backend modules are in libs/.\n"
-              "Keep the supplied library names, symlinks and backend modules together.\n"
-              "For dynamic backend packages, put the ggml modules beside the host executable\n"
-              "or in its working directory; the backend loader searches those locations.\n"
-              "Release, C ABI and shared-library versions are recorded separately in build-info.json.\n"
-              "Packaging preserves the source-defined library version and ABI; it does not rewrite them.\n"
-              "eSpeak-ng and its language data are external dependencies for models such as Kokoro.\n"
-              "CUDA packages require the matching platform/toolkit cudart archive and an NVIDIA driver.\n"
-              "Extract cudart beside the libraries in libs/. On Linux add libs/ to LD_LIBRARY_PATH;\n"
-              "on Windows add it to the DLL search path (e.g. os.add_dll_directory for Python).\n"
-          )
       - name: Build and stage C API library
         shell: pwsh
         run: |
@@ -1261,40 +920,6 @@ jobs:
   # uncommenting and pointing at a runner that can provide a ROCm/HIP runtime.
   #   linux-rocm:
   #     ...
-      - name: Record library provenance and dependencies
-        shell: python {0}
-        env:
-          RELEASE_VERSION: ${{ needs.get-version.outputs.version }}
-          SOURCE_REPOSITORY: ${{ inputs.source_repository || github.repository }}
-        run: |
-          import json, os, pathlib, re, subprocess
-          root = pathlib.Path("dist-lib")
-          root.mkdir(exist_ok=True)
-          header = pathlib.Path("include/audiocpp.h").read_text()
-          cmake = pathlib.Path("CMakeLists.txt").read_text()
-          properties = re.search(r"set_target_properties\(audiocpp PROPERTIES(.*?)\n\s*\)", cmake, re.S).group(1)
-          abi = ".".join(re.search(r"#define AUDIOCPP_ABI_VERSION_" + part + r"\s+(\d+)", header).group(1) for part in ("MAJOR", "MINOR", "PATCH"))
-          manifest = {
-              "release_version": os.environ["RELEASE_VERSION"],
-              "source_repository": os.environ["SOURCE_REPOSITORY"],
-              "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-              "c_abi_version": abi,
-              "shared_library_version": re.search(r"\bVERSION\s+(\S+)", properties).group(1),
-              "shared_library_soversion": re.search(r"\bSOVERSION\s+(\S+)", properties).group(1),
-          }
-          (root / "build-info.json").write_text(json.dumps(manifest, indent=2) + "\n")
-          (root / "README.txt").write_text(
-              "Headers are in include/; libraries and backend modules are in libs/.\n"
-              "Keep the supplied library names, symlinks and backend modules together.\n"
-              "For dynamic backend packages, put the ggml modules beside the host executable\n"
-              "or in its working directory; the backend loader searches those locations.\n"
-              "Release, C ABI and shared-library versions are recorded separately in build-info.json.\n"
-              "Packaging preserves the source-defined library version and ABI; it does not rewrite them.\n"
-              "eSpeak-ng and its language data are external dependencies for models such as Kokoro.\n"
-              "CUDA packages require the matching platform/toolkit cudart archive and an NVIDIA driver.\n"
-              "Extract cudart beside the libraries in libs/. On Linux add libs/ to LD_LIBRARY_PATH;\n"
-              "on Windows add it to the DLL search path (e.g. os.add_dll_directory for Python).\n"
-          )
       - name: Build and stage C API library
         shell: pwsh
         run: |
