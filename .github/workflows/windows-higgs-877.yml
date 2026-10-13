@@ -1,0 +1,51 @@
+name: Windows Higgs issue 877 prebuilt
+on:
+  push:
+    branches: [test/issue877-windows-prebuilt]
+    paths:
+      - .github/workflows/windows-higgs-877.yml
+      - test-higgs-877.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reproduce:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Download published CPU prebuilts and one Q8 model
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory artifacts, downloads, models -Force | Out-Null
+          Get-CimInstance Win32_Processor | Format-List * | Out-File artifacts/cpu.txt
+          Get-ComputerInfo | Out-File artifacts/system.txt
+          foreach ($kind in @('cpu', 'cpu-portable')) {
+            $asset = "audio-v0.9.1-bin-windows-x64-$kind.zip"
+            gh release download v0.9.1 --repo 0xShug0/audio.cpp --pattern $asset --dir downloads
+            if ($LASTEXITCODE) { throw "Release download failed: $asset" }
+            Expand-Archive "downloads/$asset" -DestinationPath "prebuilt/$kind"
+          }
+          $url = 'https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/f861648c0c1f4da9f18e9a0ce5e217b0679bb2f5/Higgs-Audio-v3-TTS-4B-GGUF/higgs-audio-v3-tts-4b-q8_0.gguf'
+          $url | Set-Content artifacts/model-url.txt
+          curl.exe -fL --retry 3 $url -o models/higgs-audio-v3-tts-4b-q8_0.gguf
+          if ($LASTEXITCODE) { throw 'Model download failed' }
+          $model = Get-Item models/higgs-audio-v3-tts-4b-q8_0.gguf
+          if ($model.Length -ne 5095354048) { throw 'Wrong model size' }
+          $hash = Get-FileHash $model.FullName -Algorithm SHA256
+          $hash | Format-List | Out-File artifacts/model-sha256.txt
+          if ($hash.Hash.ToLower() -ne '79746822045b5bf8f9ab2bda87b16cd3f8ea3d9e319cbcf887a87aa1b537a74a') { throw 'Wrong model SHA256' }
+          Get-FileHash downloads/*.zip -Algorithm SHA256 | Format-List | Out-File artifacts/prebuilt-sha256.txt
+      - name: Run original minimal request with logs
+        run: python test-higgs-877.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: windows-higgs-877-evidence
+          path: artifacts/
+          retention-days: 14
