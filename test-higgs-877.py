@@ -4,14 +4,30 @@ from pathlib import Path
 import subprocess
 import time
 import wave
+import ctypes
 
 root = Path.cwd()
 artifacts = root / 'artifacts'
 artifacts.mkdir(exist_ok=True)
 model = root / 'models/higgs-audio-v3-tts-4b-q8_0.gguf'
 results = []
-for kind in ('cpu', 'cpu-portable'):
-    cli = next((root / 'prebuilt' / kind).rglob('audiocpp_cli.exe'))
+cli = next((root / 'prebuilt/cuda12.4').rglob('audiocpp_cli.exe'))
+dll_directory = os.add_dll_directory(str(cli.parent))
+alderlake = list(cli.parent.glob('ggml-cpu-alderlake.dll'))
+score = 0
+if alderlake:
+    library = ctypes.CDLL(str(alderlake[0]))
+    score = library.ggml_backend_score()
+    print('Alder Lake DLL compatibility score:', score, flush=True)
+(artifacts / 'alderlake-score.json').write_text(json.dumps({'score': score}))
+cases = ['cuda-package-cpu']
+if score > 0:
+    cases.append('cuda-package-alderlake')
+for kind in cases:
+    if kind == 'cuda-package-alderlake':
+        for dll in cli.parent.glob('ggml-cpu-*.dll'):
+            if dll.name != 'ggml-cpu-alderlake.dll':
+                dll.rename(dll.with_suffix('.disabled'))
     out = artifacts / (kind + '.wav')
     command = [str(cli), '--task', 'tts', '--family', 'higgs_audio_tts',
                '--model', str(model), '--backend', 'cpu', '--text', 'Hello test.',

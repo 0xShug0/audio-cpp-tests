@@ -25,12 +25,18 @@ jobs:
           New-Item -ItemType Directory artifacts, downloads, models -Force | Out-Null
           Get-CimInstance Win32_Processor | Format-List * | Out-File artifacts/cpu.txt
           Get-ComputerInfo | Out-File artifacts/system.txt
-          foreach ($kind in @('cpu', 'cpu-portable')) {
+          foreach ($kind in @('cuda12.4')) {
             $asset = "audio-v0.9.1-bin-windows-x64-$kind.zip"
             gh release download v0.9.1 --repo 0xShug0/audio.cpp --pattern $asset --dir downloads
             if ($LASTEXITCODE) { throw "Release download failed: $asset" }
             Expand-Archive "downloads/$asset" -DestinationPath "prebuilt/$kind"
           }
+          gh release download v0.9.1 --repo 0xShug0/audio.cpp --pattern audio-v0.9.1-cudart-windows-x64-cuda12.4.zip --dir downloads
+          if ($LASTEXITCODE) { throw 'CUDA runtime download failed' }
+          Expand-Archive downloads/audio-v0.9.1-cudart-windows-x64-cuda12.4.zip -DestinationPath cuda-runtime
+          $cli = Get-ChildItem prebuilt -Filter audiocpp_cli.exe -Recurse | Select-Object -First 1
+          Get-ChildItem cuda-runtime -Filter '*.dll' -Recurse | Copy-Item -Destination $cli.DirectoryName
+          Get-ChildItem $cli.DirectoryName -Filter '*.dll' | Select-Object Name,Length | Format-Table | Out-File artifacts/dlls.txt
           $url = 'https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/f861648c0c1f4da9f18e9a0ce5e217b0679bb2f5/Higgs-Audio-v3-TTS-4B-GGUF/higgs-audio-v3-tts-4b-q8_0.gguf'
           $url | Set-Content artifacts/model-url.txt
           curl.exe -fL --retry 3 $url -o models/higgs-audio-v3-tts-4b-q8_0.gguf
