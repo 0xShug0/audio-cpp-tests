@@ -1,0 +1,59 @@
+name: Server config examples
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        required: true
+        type: string
+        default: v0.9.2
+      source_repository:
+        required: true
+        type: string
+        default: 0xShug0/audio.cpp
+      source_ref:
+        required: true
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  get-version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      source_sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.source_repository || github.repository }}
+          ref: ${{ inputs.source_ref || github.sha }}
+      - id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - id: version
+        env:
+          TAG: ${{ inputs.version }}
+        run: |
+          [[ "$TAG" == v* ]] || TAG="v${TAG}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+  server-config-examples:
+    name: Server config examples
+    needs: get-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.source_repository || github.repository }}
+          ref: ${{ needs.get-version.outputs.source_sha }}
+      - name: Package server config examples
+        env:
+          TAG: ${{ needs.get-version.outputs.tag }}
+        run: zip -qr "audio-${TAG}-server-config-examples.zip" LICENSE examples/server
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audio-${{ needs.get-version.outputs.tag }}-server-config-examples
+          path: audio-${{ needs.get-version.outputs.tag }}-server-config-examples.zip
+          if-no-files-found: error
