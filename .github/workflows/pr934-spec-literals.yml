@@ -1,0 +1,35 @@
+name: PR934 compiled spec JSON
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: 0xShug0/audio.cpp
+          ref: e7769df477743c0ca58f69695812bbda3988dda5
+          path: upstream
+          fetch-depth: 0
+      - name: Validate with MSVC C++17
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python test-spec-literals.py --source upstream --artifacts artifacts --base-ref 9c69e6b201cd693f6694fd235c990b2fb422586e
+          if ($LASTEXITCODE) { throw 'Compiled spec validation failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr934-windows-spec-json
+          path: |
+            artifacts/results.json
+            artifacts/*/*.log
+            artifacts/*/*.records
+          retention-days: 14
