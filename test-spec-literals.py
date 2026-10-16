@@ -94,7 +94,8 @@ for name, cmake, fixture in [
         raise RuntimeError(name + ": configure failed")
     generated = {}
     for catalog in catalogs:
-        content = (build / "generated" / catalog).read_bytes()
+        # C++ normalizes physical CRLF source lines before forming literals.
+        content = (build / "generated" / catalog).read_bytes().replace(b"\r\n", b"\n")
         import re
         chunks = re.findall(rb'R"AUDIOCPP_SPEC\((.*?)\)AUDIOCPP_SPEC"', content, re.S)
         generated[catalog] = {"chunks": len(chunks), "max_literal_bytes": max(map(len, chunks))}
@@ -107,6 +108,7 @@ for name, cmake, fixture in [
     if name == "baseline_oversized" and os.name == "nt":
         row["expected_C2026"] = compile_result.returncode != 0 and b"C2026" in compile_result.stdout
         results.append(row)
+        (artifacts / "results.json").write_text(json.dumps(results, indent=2))
         if not row["expected_C2026"]:
             raise RuntimeError("Baseline did not reproduce MSVC C2026")
         continue

@@ -32,4 +32,5 @@ jobs:
             artifacts/results.json
             artifacts/*/*.log
             artifacts/*/*.records
+            artifacts/*/build/debug/generated/*.inc
           retention-days: 14
